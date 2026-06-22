@@ -36,4 +36,10 @@ interface SyncedFileDao {
 
     @Query("UPDATE synced_files SET localPath = :localPath, downloadedAt = :downloadedAt, syncStatus = :status WHERE id = :id")
     suspend fun markAsDownloaded(id: Long, localPath: String, downloadedAt: Long, status: SyncStatus)
+
+    @Query("SELECT * FROM synced_files WHERE syncStatus = 'COMPLETED' AND downloadedAt IS NOT NULL AND downloadedAt <= :cutoffMillis")
+    suspend fun getFilesOlderThan(cutoffMillis: Long): List<SyncedFileEntity>
+
+    @Query("UPDATE synced_files SET localPath = null, syncStatus = :status WHERE id = :id")
+    suspend fun markAsLocallyDeleted(id: Long, status: SyncStatus)
 }

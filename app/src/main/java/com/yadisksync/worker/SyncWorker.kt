@@ -12,6 +12,7 @@ import androidx.core.content.ContextCompat
 import androidx.hilt.work.HiltWorker
 import androidx.work.*
 import com.yadisksync.R
+import com.yadisksync.domain.usecase.CleanupOldPhotosUseCase
 import com.yadisksync.domain.usecase.SyncPhotosUseCase
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -20,7 +21,8 @@ import dagger.assisted.AssistedInject
 class SyncWorker @AssistedInject constructor(
     @Assisted private val context: Context,
     @Assisted workerParams: WorkerParameters,
-    private val syncPhotosUseCase: SyncPhotosUseCase
+    private val syncPhotosUseCase: SyncPhotosUseCase,
+    private val cleanupOldPhotosUseCase: CleanupOldPhotosUseCase
 ) : CoroutineWorker(context, workerParams) {
 
     companion object {
@@ -63,18 +65,22 @@ class SyncWorker @AssistedInject constructor(
             val result = syncPhotosUseCase()
             if (result.isSuccess) {
                 val downloaded = result.getOrDefault(0)
-                Log.d(TAG, "Sync success: $downloaded files downloaded")
-                showCompletionNotification(downloaded)
-                updateForegroundNotification(downloaded, true)
+
+                val cleaned = cleanupOldPhotosUseCase()
+                Log.d(TAG, "Cleanup: $cleaned files cleaned locally")
+
+                Log.d(TAG, "Sync success: $downloaded downloaded, $cleaned cleaned")
+                showCompletionNotification(downloaded, cleaned)
+                updateForegroundNotification(downloaded, true, cleaned)
                 Result.success()
             } else {
                 Log.w(TAG, "Sync returned failure: ${result.exceptionOrNull()}")
-                updateForegroundNotification(0, false)
+                updateForegroundNotification(0, false, 0)
                 Result.retry()
             }
         } catch (e: Exception) {
             Log.e(TAG, "Sync worker exception (attempt $runAttemptCount)", e)
-            updateForegroundNotification(0, false)
+            updateForegroundNotification(0, false, 0)
             if (runAttemptCount < 3) Result.retry() else Result.failure()
         }
     }
@@ -100,11 +106,13 @@ class SyncWorker @AssistedInject constructor(
         return ForegroundInfo(NOTIFICATION_ID, notification)
     }
 
-    private fun updateForegroundNotification(downloaded: Int, success: Boolean) {
+    private fun updateForegroundNotification(downloaded: Int, success: Boolean, cleaned: Int = 0) {
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setContentTitle(if (success) "Sync complete" else "Sync failed")
             .setContentText(
-                if (success) "Downloaded $downloaded new photos" else "Retry attempt $runAttemptCount"
+                if (success) {
+                    if (cleaned > 0) "Downloaded $downloaded, cleaned $cleaned" else "Downloaded $downloaded new photos"
+                } else "Retry attempt $runAttemptCount"
             )
             .setSmallIcon(R.drawable.ic_sync)
             .setProgress(0, 0, false)
@@ -114,10 +122,17 @@ class SyncWorker @AssistedInject constructor(
         notificationManager.notify(NOTIFICATION_ID, notification)
     }
 
-    private fun showCompletionNotification(count: Int) {
+    private fun showCompletionNotification(downloaded: Int, cleaned: Int) {
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setContentTitle("Sync complete")
-            .setContentText(if (count > 0) "Downloaded $count new photos" else "No new photos")
+            .setContentText(
+                when {
+                    downloaded > 0 && cleaned > 0 -> "Downloaded $downloaded, cleaned $cleaned"
+                    downloaded > 0 -> "Downloaded $downloaded new photos"
+                    cleaned > 0 -> "Cleaned $cleaned old photos"
+                    else -> "No new photos"
+                }
+            )
             .setSmallIcon(R.drawable.ic_sync)
             .setAutoCancel(true)
             .build()

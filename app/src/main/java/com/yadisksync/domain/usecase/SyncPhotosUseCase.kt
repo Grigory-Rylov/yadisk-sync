@@ -105,8 +105,8 @@ class SyncPhotosUseCase @Inject constructor(
 
         val remoteId = md5(file.path)
         val existing = syncRepository.getFileByRemoteId(remoteId)
-        if (existing != null && existing.syncStatus == SyncStatus.COMPLETED) {
-            Log.d(TAG, "Already completed, skipping: ${file.name}")
+        if (existing != null && (existing.syncStatus == SyncStatus.COMPLETED || existing.syncStatus == SyncStatus.DELETED)) {
+            Log.d(TAG, "Already processed (${existing.syncStatus}), skipping: ${file.name}")
             return 0
         }
 

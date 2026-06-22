@@ -4,5 +4,6 @@ enum class SyncStatus {
     PENDING,
     DOWNLOADING,
     COMPLETED,
-    FAILED
+    FAILED,
+    DELETED
 }

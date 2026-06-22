@@ -31,4 +31,7 @@ class SyncRepositoryImpl @Inject constructor(
         downloadedAt: Long,
         status: SyncStatus
     ) = dao.markAsDownloaded(id, localPath, downloadedAt, status)
+
+    override suspend fun getFilesOlderThan(cutoffMillis: Long) = dao.getFilesOlderThan(cutoffMillis)
+    override suspend fun markAsLocallyDeleted(id: Long, status: SyncStatus) = dao.markAsLocallyDeleted(id, status)
 }

@@ -8,10 +8,14 @@ interface SettingsRepository {
     val storagePath: Flow<String>
     val syncIntervalMinutes: Flow<Int>
     val lastSyncTime: Flow<Long>
+    val deleteOldPhotos: Flow<Boolean>
+    val deleteAfterDays: Flow<Int>
 
     suspend fun setOauthToken(token: String)
     suspend fun setOldestDateMillis(millis: Long)
     suspend fun setStoragePath(path: String)
     suspend fun setSyncIntervalMinutes(minutes: Int)
     suspend fun setLastSyncTime(time: Long)
+    suspend fun setDeleteOldPhotos(enabled: Boolean)
+    suspend fun setDeleteAfterDays(days: Int)
 }

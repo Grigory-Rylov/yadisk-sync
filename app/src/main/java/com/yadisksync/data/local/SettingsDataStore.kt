@@ -21,6 +21,8 @@ class SettingsDataStore @Inject constructor(
         private val STORAGE_PATH = stringPreferencesKey("storage_path")
         private val SYNC_INTERVAL_MINUTES = intPreferencesKey("sync_interval_minutes")
         private val LAST_SYNC_TIME = longPreferencesKey("last_sync_time")
+        private val DELETE_OLD_PHOTOS = booleanPreferencesKey("delete_old_photos")
+        private val DELETE_AFTER_DAYS = intPreferencesKey("delete_after_days")
     }
 
     val oauthToken: Flow<String> = context.dataStore.data.map { prefs ->
@@ -33,6 +35,8 @@ class SettingsDataStore @Inject constructor(
     }
     val syncIntervalMinutes: Flow<Int> = context.dataStore.data.map { it[SYNC_INTERVAL_MINUTES] ?: 15 }
     val lastSyncTime: Flow<Long> = context.dataStore.data.map { it[LAST_SYNC_TIME] ?: 0L }
+    val deleteOldPhotos: Flow<Boolean> = context.dataStore.data.map { it[DELETE_OLD_PHOTOS] ?: false }
+    val deleteAfterDays: Flow<Int> = context.dataStore.data.map { it[DELETE_AFTER_DAYS] ?: 7 }
 
     suspend fun setOauthToken(token: String) {
         context.dataStore.edit { it[OAUTH_TOKEN] = token }
@@ -52,5 +56,13 @@ class SettingsDataStore @Inject constructor(
 
     suspend fun setLastSyncTime(time: Long) {
         context.dataStore.edit { it[LAST_SYNC_TIME] = time }
+    }
+
+    suspend fun setDeleteOldPhotos(enabled: Boolean) {
+        context.dataStore.edit { it[DELETE_OLD_PHOTOS] = enabled }
+    }
+
+    suspend fun setDeleteAfterDays(days: Int) {
+        context.dataStore.edit { it[DELETE_AFTER_DAYS] = days }
     }
 }

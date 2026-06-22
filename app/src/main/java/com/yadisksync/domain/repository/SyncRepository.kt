@@ -10,4 +10,6 @@ interface SyncRepository {
     suspend fun insert(file: SyncedFileEntity)
     suspend fun updateStatus(id: Long, status: com.yadisksync.data.local.SyncStatus)
     suspend fun markAsDownloaded(id: Long, localPath: String, downloadedAt: Long, status: com.yadisksync.data.local.SyncStatus)
+    suspend fun getFilesOlderThan(cutoffMillis: Long): List<SyncedFileEntity>
+    suspend fun markAsLocallyDeleted(id: Long, status: com.yadisksync.data.local.SyncStatus)
 }

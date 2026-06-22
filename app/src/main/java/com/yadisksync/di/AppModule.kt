@@ -92,9 +92,8 @@ object AppModule {
     @Provides
     @Singleton
     fun provideSettingsRepository(
-        dataStore: SettingsDataStore,
-        @ApplicationContext context: Context
+        dataStore: SettingsDataStore
     ): SettingsRepository {
-        return SettingsRepositoryImpl(dataStore, context)
+        return SettingsRepositoryImpl(dataStore)
     }
 }

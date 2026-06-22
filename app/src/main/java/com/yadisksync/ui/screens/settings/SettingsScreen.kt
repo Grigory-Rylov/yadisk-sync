@@ -3,6 +3,7 @@ package com.yadisksync.ui.screens.settings
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -57,6 +58,51 @@ fun SettingsScreen(
                     Text("Storage path", style = MaterialTheme.typography.titleSmall)
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(state.storagePath, style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("Delete old photos", style = MaterialTheme.typography.titleSmall)
+                            Text("Delete files from Yandex Disk after retention period", style = MaterialTheme.typography.bodySmall)
+                        }
+                        Switch(
+                            checked = state.deleteOldPhotos,
+                            onCheckedChange = { viewModel.setDeleteOldPhotos(it) }
+                        )
+                    }
+
+                    if (state.deleteOldPhotos) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("Retention period: ${state.deleteAfterDays} days", style = MaterialTheme.typography.bodyMedium)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            IconButton(onClick = {
+                                if (state.deleteAfterDays > 1) viewModel.setDeleteAfterDays(state.deleteAfterDays - 1)
+                            }) {
+                                Text("−", style = MaterialTheme.typography.headlineMedium)
+                            }
+                            Text(
+                                "${state.deleteAfterDays}",
+                                style = MaterialTheme.typography.headlineSmall,
+                                modifier = Modifier.width(40.dp),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                            IconButton(onClick = {
+                                viewModel.setDeleteAfterDays(state.deleteAfterDays + 1)
+                            }) {
+                                Text("+", style = MaterialTheme.typography.headlineMedium)
+                            }
+                        }
+                    }
                 }
             }
 
