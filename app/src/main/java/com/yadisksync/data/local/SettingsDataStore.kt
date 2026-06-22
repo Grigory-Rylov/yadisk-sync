@@ -1,0 +1,56 @@
+package com.yadisksync.data.local
+
+import android.content.Context
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.*
+import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
+import javax.inject.Inject
+import javax.inject.Singleton
+
+private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
+
+@Singleton
+class SettingsDataStore @Inject constructor(
+    private val context: Context
+) {
+    companion object {
+        private val OAUTH_TOKEN = stringPreferencesKey("oauth_token")
+        private val OLDEST_DATE_MILLIS = longPreferencesKey("oldest_date_millis")
+        private val STORAGE_PATH = stringPreferencesKey("storage_path")
+        private val SYNC_INTERVAL_MINUTES = intPreferencesKey("sync_interval_minutes")
+        private val LAST_SYNC_TIME = longPreferencesKey("last_sync_time")
+    }
+
+    val oauthToken: Flow<String> = context.dataStore.data.map { prefs ->
+        (prefs[OAUTH_TOKEN] ?: com.yadisksync.BuildConfig.YA_DISK_TOKEN).takeIf { it.isNotBlank() }
+            ?: com.yadisksync.BuildConfig.YA_DISK_TOKEN
+    }
+    val oldestDateMillis: Flow<Long> = context.dataStore.data.map { it[OLDEST_DATE_MILLIS] ?: 1781049600000L } // 10.06.2026
+    val storagePath: Flow<String> = context.dataStore.data.map {
+        it[STORAGE_PATH] ?: context.getExternalFilesDir(null)?.absolutePath + "/photos"
+    }
+    val syncIntervalMinutes: Flow<Int> = context.dataStore.data.map { it[SYNC_INTERVAL_MINUTES] ?: 15 }
+    val lastSyncTime: Flow<Long> = context.dataStore.data.map { it[LAST_SYNC_TIME] ?: 0L }
+
+    suspend fun setOauthToken(token: String) {
+        context.dataStore.edit { it[OAUTH_TOKEN] = token }
+    }
+
+    suspend fun setOldestDateMillis(millis: Long) {
+        context.dataStore.edit { it[OLDEST_DATE_MILLIS] = millis }
+    }
+
+    suspend fun setStoragePath(path: String) {
+        context.dataStore.edit { it[STORAGE_PATH] = path }
+    }
+
+    suspend fun setSyncIntervalMinutes(minutes: Int) {
+        context.dataStore.edit { it[SYNC_INTERVAL_MINUTES] = minutes }
+    }
+
+    suspend fun setLastSyncTime(time: Long) {
+        context.dataStore.edit { it[LAST_SYNC_TIME] = time }
+    }
+}

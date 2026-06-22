@@ -1,0 +1,29 @@
+# Gradle
+.gradle/
+build/
+*/build/
+
+# Local properties (contains SDK path and Yandex OAuth token)
+local.properties
+*/local.properties
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+*.swp
+*.swo
+*~
+
+# Android
+captures/
+.externalNativeBuild/
+.cxx/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
