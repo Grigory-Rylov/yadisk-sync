@@ -5,6 +5,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -41,13 +42,21 @@ fun HomeScreen(
                 ) {
                     Text("Last sync: ${formatTime(state.lastSyncTime)}")
                     Spacer(modifier = Modifier.height(8.dp))
-                    Button(
-                        onClick = { viewModel.syncNow() },
-                        enabled = !state.isSyncing
-                    ) {
-                        Icon(Icons.Default.Sync, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(if (state.isSyncing) "Syncing..." else "Sync Now")
+                    if (state.isSyncing) {
+                        Button(
+                            onClick = { viewModel.cancelSync() },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                        ) {
+                            Icon(Icons.Default.Stop, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Stop Sync")
+                        }
+                    } else {
+                        Button(onClick = { viewModel.syncNow() }) {
+                            Icon(Icons.Default.Sync, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Sync Now")
+                        }
                     }
                 }
             }

@@ -31,7 +31,7 @@ class SettingsDataStore @Inject constructor(
         (prefs[OAUTH_TOKEN] ?: com.yadisksync.BuildConfig.YA_DISK_TOKEN).takeIf { it.isNotBlank() }
             ?: com.yadisksync.BuildConfig.YA_DISK_TOKEN
     }
-    val oldestDateMillis: Flow<Long> = context.dataStore.data.map { it[OLDEST_DATE_MILLIS] ?: 1451606400000L }
+    val oldestDateMillis: Flow<Long> = context.dataStore.data.map { it[OLDEST_DATE_MILLIS] ?: 1777603200000L }
     val storagePath: Flow<String> = context.dataStore.data.map {
         it[STORAGE_PATH] ?: getPublicDownloadsPath()
     }

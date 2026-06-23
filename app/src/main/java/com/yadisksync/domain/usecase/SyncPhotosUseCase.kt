@@ -202,14 +202,16 @@ class SyncPhotosUseCase @Inject constructor(
                 Log.d(TAG, "  Download URL: ${linkResponse.href}")
 
                 if (BuildConfig.SAVE_FILES_TO_DISK) {
-                    val uniqueName = generateUniqueName(file, storagePath, yearFolder)
-                    val mimeType = file.mimeType ?: "application/octet-stream"
+                    val mimeType = file.mimeType.ifBlank { "application/octet-stream" }
 
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        val relativePath = "${Environment.DIRECTORY_DOWNLOADS}/YaDiskSync/$yearFolder"
+                        val uniqueName = generateUniqueNameMediaStore(file, relativePath)
+
                         val contentValues = ContentValues().apply {
                             put(MediaStore.Downloads.DISPLAY_NAME, uniqueName)
                             put(MediaStore.Downloads.MIME_TYPE, mimeType)
-                            put(MediaStore.Downloads.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/YaDiskSync/$yearFolder")
+                            put(MediaStore.Downloads.RELATIVE_PATH, relativePath)
                         }
                         val uriCollection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
                         val uri = context.contentResolver.insert(uriCollection, contentValues)
@@ -235,6 +237,7 @@ class SyncPhotosUseCase @Inject constructor(
                             status = SyncStatus.COMPLETED
                         )
                     } else {
+                        val uniqueName = generateUniqueName(file, storagePath, yearFolder)
                         val dir = File(storagePath, yearFolder)
                         if (!dir.exists()) dir.mkdirs()
 
@@ -291,6 +294,34 @@ class SyncPhotosUseCase @Inject constructor(
         var uniqueName = candidate
         var counter = 1
         while (File(yearDir, uniqueName).exists()) {
+            uniqueName = if (extension.isNotEmpty()) "$baseName($counter).$extension" else "$baseName($counter)"
+            counter++
+        }
+        return uniqueName
+    }
+
+    private fun generateUniqueNameMediaStore(file: DiskFile, relativePath: String): String {
+        val baseName = file.name.substringBeforeLast(".")
+        val extension = file.name.substringAfterLast(".")
+        val candidate = if (extension.isNotEmpty()) "$baseName.$extension" else baseName
+
+        val existingNames = HashSet<String>()
+        context.contentResolver.query(
+            MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+            arrayOf(MediaStore.Downloads.DISPLAY_NAME),
+            "${MediaStore.Downloads.RELATIVE_PATH} = ?",
+            arrayOf(relativePath),
+            null
+        )?.use { cursor ->
+            val nameIdx = cursor.getColumnIndexOrThrow(MediaStore.Downloads.DISPLAY_NAME)
+            while (cursor.moveToNext()) {
+                existingNames.add(cursor.getString(nameIdx))
+            }
+        }
+
+        var uniqueName = candidate
+        var counter = 1
+        while (existingNames.contains(uniqueName)) {
             uniqueName = if (extension.isNotEmpty()) "$baseName($counter).$extension" else "$baseName($counter)"
             counter++
         }

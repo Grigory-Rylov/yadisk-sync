@@ -9,6 +9,7 @@ import com.yadisksync.domain.repository.SyncRepository
 import com.yadisksync.domain.usecase.SyncPhotosUseCase
 import com.yadisksync.worker.SyncWorker
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -32,6 +33,8 @@ class HomeViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
 
+    private var syncJob: kotlinx.coroutines.Job? = null
+
     init {
         viewModelScope.launch {
             combine(
@@ -47,22 +50,34 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             workManager.getWorkInfosForUniqueWorkFlow(SyncWorker.WORK_NAME)
                 .collect { infos ->
-                    val isRunning = infos.any { it.state == WorkInfo.State.RUNNING }
-                    _uiState.update { it.copy(isSyncing = isRunning) }
+                    val runningByWorker = infos.any { it.state == WorkInfo.State.RUNNING }
+                    val runningByManual = syncJob?.isActive == true
+                    _uiState.update { it.copy(isSyncing = runningByWorker || runningByManual) }
                 }
         }
     }
 
     fun syncNow() {
-        viewModelScope.launch {
-            _uiState.update { it.copy(errorMessage = null, syncResult = 0) }
+        if (syncJob?.isActive == true) return
+        _uiState.update { it.copy(errorMessage = null, syncResult = 0) }
+        syncJob = viewModelScope.launch {
             val result = syncPhotosUseCase()
             if (result.isFailure) {
-                _uiState.update { it.copy(errorMessage = result.exceptionOrNull()?.message ?: "Sync failed") }
+                val msg = result.exceptionOrNull()
+                if (msg is CancellationException) {
+                    _uiState.update { it.copy(syncResult = 0) }
+                } else {
+                    _uiState.update { it.copy(errorMessage = msg?.message ?: "Sync failed") }
+                }
             } else {
                 _uiState.update { it.copy(syncResult = result.getOrDefault(0)) }
             }
         }
+    }
+
+    fun cancelSync() {
+        syncJob?.cancel()
+        workManager.cancelUniqueWork(SyncWorker.WORK_NAME)
     }
 
     fun schedulePeriodicSync(intervalMinutes: Int) {
