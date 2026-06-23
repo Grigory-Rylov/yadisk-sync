@@ -1,16 +1,20 @@
 package com.yadisksync.domain.usecase
 
+import android.content.Context
+import android.net.Uri
 import android.util.Log
 import com.yadisksync.data.local.SyncStatus
 import com.yadisksync.domain.repository.SettingsRepository
 import com.yadisksync.domain.repository.SyncRepository
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.first
 import java.io.File
 import javax.inject.Inject
 
 class CleanupOldPhotosUseCase @Inject constructor(
     private val syncRepository: SyncRepository,
-    private val settingsRepository: SettingsRepository
+    private val settingsRepository: SettingsRepository,
+    @ApplicationContext private val context: Context
 ) {
     companion object {
         private const val TAG = "CleanupOldPhotosUseCase"
@@ -34,7 +38,13 @@ class CleanupOldPhotosUseCase @Inject constructor(
         for (file in oldFiles) {
             try {
                 file.localPath?.let { path ->
-                    if (!path.startsWith("[")) {
+                    if (path.startsWith("[")) return@let
+
+                    if (path.startsWith("content://")) {
+                        val uri = Uri.parse(path)
+                        val deletedRows = context.contentResolver.delete(uri, null, null)
+                        Log.d(TAG, "MediaStore ${if (deletedRows > 0) "deleted" else "NOT deleted"}: $path")
+                    } else {
                         val localFile = File(path)
                         if (localFile.exists()) {
                             val deleted = localFile.delete()

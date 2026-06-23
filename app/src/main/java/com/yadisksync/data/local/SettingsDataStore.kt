@@ -1,11 +1,13 @@
 package com.yadisksync.data.local
 
 import android.content.Context
+import android.os.Environment
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -29,14 +31,20 @@ class SettingsDataStore @Inject constructor(
         (prefs[OAUTH_TOKEN] ?: com.yadisksync.BuildConfig.YA_DISK_TOKEN).takeIf { it.isNotBlank() }
             ?: com.yadisksync.BuildConfig.YA_DISK_TOKEN
     }
-    val oldestDateMillis: Flow<Long> = context.dataStore.data.map { it[OLDEST_DATE_MILLIS] ?: 1781049600000L } // 10.06.2026
+    val oldestDateMillis: Flow<Long> = context.dataStore.data.map { it[OLDEST_DATE_MILLIS] ?: 1451606400000L }
     val storagePath: Flow<String> = context.dataStore.data.map {
-        it[STORAGE_PATH] ?: context.getExternalFilesDir(null)?.absolutePath + "/photos"
+        it[STORAGE_PATH] ?: getPublicDownloadsPath()
     }
     val syncIntervalMinutes: Flow<Int> = context.dataStore.data.map { it[SYNC_INTERVAL_MINUTES] ?: 15 }
     val lastSyncTime: Flow<Long> = context.dataStore.data.map { it[LAST_SYNC_TIME] ?: 0L }
     val deleteOldPhotos: Flow<Boolean> = context.dataStore.data.map { it[DELETE_OLD_PHOTOS] ?: false }
     val deleteAfterDays: Flow<Int> = context.dataStore.data.map { it[DELETE_AFTER_DAYS] ?: 7 }
+
+    private fun getPublicDownloadsPath(): String {
+        val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            ?: File("/storage/emulated/0/Download")
+        return File(dir, "YaDiskSync").absolutePath
+    }
 
     suspend fun setOauthToken(token: String) {
         context.dataStore.edit { it[OAUTH_TOKEN] = token }

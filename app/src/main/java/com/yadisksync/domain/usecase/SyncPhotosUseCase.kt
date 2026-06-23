@@ -1,6 +1,10 @@
 package com.yadisksync.domain.usecase
 
+import android.content.ContentValues
 import android.content.Context
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
 import android.util.Log
 import com.yadisksync.BuildConfig
 import com.yadisksync.data.local.SyncedFileEntity
@@ -40,9 +44,11 @@ class SyncPhotosUseCase @Inject constructor(
             }
 
             val oldestDateMillis = settingsRepository.oldestDateMillis.first()
+            val lastSyncTime = settingsRepository.lastSyncTime.first()
             val storagePath = settingsRepository.storagePath.first()
+            val effectiveStartMillis = if (lastSyncTime > 0) lastSyncTime else oldestDateMillis
 
-            Log.d(TAG, "Sync started. storagePath=$storagePath, oldestDateMillis=$oldestDateMillis, token=${token.take(10)}...(${token.length} chars)")
+            Log.d(TAG, "Sync started. storagePath=$storagePath, oldestDateMillis=$oldestDateMillis, lastSyncTime=$lastSyncTime, effectiveStart=$effectiveStartMillis, token=${token.take(10)}...(${token.length} chars)")
 
             val authHeader = "OAuth $token"
             var offset = 0
@@ -50,13 +56,15 @@ class SyncPhotosUseCase @Inject constructor(
             var totalDownloaded = 0
             var totalSkipped = 0
             var totalFailed = 0
+            var minSyncedDate: Long = 0
 
             while (true) {
                 val response = api.getFiles(
                     authorization = authHeader,
                     path = "disk:/Фотокамера",
                     limit = limit,
-                    offset = offset
+                    offset = offset,
+                    sort = "modified"
                 )
 
                 if (response.items.isEmpty() && response._embedded?.items.isNullOrEmpty()) break
@@ -67,10 +75,24 @@ class SyncPhotosUseCase @Inject constructor(
                 Log.d(TAG, "Fetched ${files.size} remote items (offset=$offset)")
 
                 for (file in files) {
+                    val fileDate = parseIsoDate(file.modified ?: file.created)
+                    if (fileDate > 0 && fileDate < effectiveStartMillis) {
+                        Log.d(TAG, "File before effective window, breaking: ${file.name} (date=$fileDate < $effectiveStartMillis)")
+                        break
+                    }
+
                     try {
                         val result = processFile(file, oldestDateMillis, storagePath, authHeader)
                         when (result) {
-                            1 -> totalDownloaded++
+                            1 -> {
+                                totalDownloaded++
+                                val fd = parseIsoDate(file.modified ?: file.created)
+                                if (fd > 0) {
+                                    if (minSyncedDate == 0L || fd < minSyncedDate) {
+                                        minSyncedDate = fd
+                                    }
+                                }
+                            }
                             -1 -> totalFailed++
                             0 -> totalSkipped++
                         }
@@ -84,7 +106,10 @@ class SyncPhotosUseCase @Inject constructor(
             }
 
             Log.d(TAG, "Sync finished. downloaded=$totalDownloaded, skipped=$totalSkipped, failed=$totalFailed")
-            settingsRepository.setLastSyncTime(System.currentTimeMillis())
+            if (minSyncedDate > 0L) {
+                settingsRepository.setLastSyncTime(minSyncedDate)
+                Log.d(TAG, "Updated lastSyncTime to $minSyncedDate")
+            }
             Result.success(totalDownloaded)
         } catch (e: Exception) {
             Log.e(TAG, "Sync failed", e)
@@ -138,18 +163,25 @@ class SyncPhotosUseCase @Inject constructor(
             }
         }
 
-        return downloadFile(file, storagePath, entityId, authHeader)
+        return downloadFile(file, storagePath, entityId, authHeader, fileDate)
     }
 
     private suspend fun downloadFile(
         file: DiskFile,
         storagePath: String,
         entityId: Long,
-        authHeader: String
+        authHeader: String,
+        fileDate: Long
     ): Int {
         return try {
             val linkResponse = api.getDownloadLink(authHeader, file.path)
             Log.d(TAG, "Download link obtained for ${file.name}: ${linkResponse.href}")
+
+            val yearFolder = if (fileDate > 0) {
+                java.time.Instant.ofEpochMilli(fileDate).atZone(java.time.ZoneOffset.UTC).year.toString()
+            } else {
+                "0000"
+            }
 
             val request = Request.Builder()
                 .url(linkResponse.href)
@@ -170,30 +202,63 @@ class SyncPhotosUseCase @Inject constructor(
                 Log.d(TAG, "  Download URL: ${linkResponse.href}")
 
                 if (BuildConfig.SAVE_FILES_TO_DISK) {
-                    val dir = File(storagePath)
-                    if (!dir.exists()) dir.mkdirs()
+                    val uniqueName = generateUniqueName(file, storagePath, yearFolder)
+                    val mimeType = file.mimeType ?: "application/octet-stream"
 
-                    val uniqueName = generateUniqueName(file, storagePath)
-                    val localFile = File(dir, uniqueName)
-                    var downloadedBytes = 0L
-                    response.body?.byteStream()?.use { input ->
-                        FileOutputStream(localFile).use { output ->
-                            val buffer = ByteArray(8192)
-                            var bytesRead: Int
-                            while (input.read(buffer).also { bytesRead = it } != -1) {
-                                output.write(buffer, 0, bytesRead)
-                                downloadedBytes += bytesRead
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        val contentValues = ContentValues().apply {
+                            put(MediaStore.Downloads.DISPLAY_NAME, uniqueName)
+                            put(MediaStore.Downloads.MIME_TYPE, mimeType)
+                            put(MediaStore.Downloads.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/YaDiskSync/$yearFolder")
+                        }
+                        val uriCollection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
+                        val uri = context.contentResolver.insert(uriCollection, contentValues)
+                            ?: throw IllegalStateException("Cannot create MediaStore entry for $uniqueName")
+
+                        var downloadedBytes = 0L
+                        response.body?.byteStream()?.use { input ->
+                            context.contentResolver.openOutputStream(uri)?.use { output ->
+                                val buffer = ByteArray(8192)
+                                var bytesRead: Int
+                                while (input.read(buffer).also { bytesRead = it } != -1) {
+                                    output.write(buffer, 0, bytesRead)
+                                    downloadedBytes += bytesRead
+                                }
                             }
                         }
-                    }
 
-                    Log.d(TAG, "Saved ${file.name} -> ${localFile.absolutePath} ($downloadedBytes bytes)")
-                    syncRepository.markAsDownloaded(
-                        id = entityId,
-                        localPath = localFile.absolutePath,
-                        downloadedAt = System.currentTimeMillis(),
-                        status = SyncStatus.COMPLETED
-                    )
+                        Log.d(TAG, "Saved (MediaStore) ${file.name} -> $uri ($downloadedBytes bytes)")
+                        syncRepository.markAsDownloaded(
+                            id = entityId,
+                            localPath = uri.toString(),
+                            downloadedAt = System.currentTimeMillis(),
+                            status = SyncStatus.COMPLETED
+                        )
+                    } else {
+                        val dir = File(storagePath, yearFolder)
+                        if (!dir.exists()) dir.mkdirs()
+
+                        val localFile = File(dir, uniqueName)
+                        var downloadedBytes = 0L
+                        response.body?.byteStream()?.use { input ->
+                            FileOutputStream(localFile).use { output ->
+                                val buffer = ByteArray(8192)
+                                var bytesRead: Int
+                                while (input.read(buffer).also { bytesRead = it } != -1) {
+                                    output.write(buffer, 0, bytesRead)
+                                    downloadedBytes += bytesRead
+                                }
+                            }
+                        }
+
+                        Log.d(TAG, "Saved ${file.name} -> ${localFile.absolutePath} ($downloadedBytes bytes)")
+                        syncRepository.markAsDownloaded(
+                            id = entityId,
+                            localPath = localFile.absolutePath,
+                            downloadedAt = System.currentTimeMillis(),
+                            status = SyncStatus.COMPLETED
+                        )
+                    }
                 } else {
                     Log.d(TAG, "[LOG-ONLY] SAVE_FILES_TO_DISK=false, skipping write to disk")
                     response.body?.byteStream()?.close()
@@ -218,19 +283,14 @@ class SyncPhotosUseCase @Inject constructor(
         }
     }
 
-    private fun generateUniqueName(file: DiskFile, storagePath: String): String {
-        val relativePath = file.path.removePrefix("disk:/Фотокамера/").removePrefix("disk:/Фотокамера")
-        val subDirs = File(storagePath, relativePath).parentFile
-        if (subDirs != null && !subDirs.isAbsolute.equals(true).not()) {
-            if (!subDirs.exists()) subDirs.mkdirs()
-            return relativePath
-        }
+    private fun generateUniqueName(file: DiskFile, storagePath: String, yearFolder: String): String {
+        val yearDir = File(storagePath, yearFolder)
         val baseName = file.name.substringBeforeLast(".")
         val extension = file.name.substringAfterLast(".")
         val candidate = if (extension.isNotEmpty()) "$baseName.$extension" else baseName
         var uniqueName = candidate
         var counter = 1
-        while (File(storagePath, uniqueName).exists()) {
+        while (File(yearDir, uniqueName).exists()) {
             uniqueName = if (extension.isNotEmpty()) "$baseName($counter).$extension" else "$baseName($counter)"
             counter++
         }
@@ -246,32 +306,19 @@ class SyncPhotosUseCase @Inject constructor(
     private fun parseIsoDate(dateStr: String?): Long {
         if (dateStr == null) return 0L
         return try {
-            // Replace +00:00 with Z for reliable Instant parsing
-            val normalized = dateStr.replace(Regex("[+-]00:00$"), "Z")
-            java.time.Instant.parse(normalized).toEpochMilli()
+            java.time.Instant.parse(dateStr).toEpochMilli()
         } catch (e: Exception) {
-            // Fallback: manually parse "yyyy-MM-dd'T'HH:mm:ss[+HH:MM]"
             try {
                 val m = Regex("""(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})([+-]\d{2}:\d{2})?""").matchEntire(dateStr)
                 if (m != null) {
                     val (year, month, day, hour, minute, second) = m.destructured
                     val tzStr = m.groupValues[7]
-                    val base = java.sql.Timestamp.valueOf(
-                        "${year}-${month}-${day} ${hour}:${minute}:${second}"
-                    ).time
-                    val offsetMillis = if (tzStr == null || tzStr == "+00:00" || tzStr == "-00:00") {
-                        0L
-                    } else {
-                        val tzMatch = Regex("([+-])(\\d{2}):(\\d{2})").matchEntire(tzStr)
-                        if (tzMatch != null) {
-                            val (sign, h, m) = tzMatch.destructured
-                            val signInt = if (sign == "+") 1 else -1
-                            signInt * (h.toLong() * 3600 + m.toLong() * 60) * 1000
-                        } else {
-                            0L
-                        }
-                    }
-                    base + offsetMillis
+                    val zdt = java.time.ZonedDateTime.of(
+                        year.toInt(), month.toInt(), day.toInt(),
+                        hour.toInt(), minute.toInt(), second.toInt(), 0,
+                        if (tzStr.isNotBlank()) java.time.ZoneOffset.of(tzStr) else java.time.ZoneOffset.UTC
+                    )
+                    zdt.toInstant().toEpochMilli()
                 } else {
                     Log.w(TAG, "Cannot parse date: $dateStr")
                     0L
